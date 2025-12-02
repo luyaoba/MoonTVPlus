@@ -223,25 +223,71 @@ export default function DanmakuPanel({
               </div>
             )}
 
-            {/* 剧集网格 */}
+            {/* 剧集列表 */}
             {!isLoadingEpisodes && episodes.length > 0 && (
-              <div className='grid grid-cols-5 gap-2 pb-4'>
-                {episodes.map((episode) => {
+              <div className='space-y-2 pb-4'>
+                {episodes.map((episode, index) => {
                   const isSelected = isEpisodeSelected(episode.episodeId);
                   return (
                     <button
                       key={episode.episodeId}
                       onClick={() => handleEpisodeSelect(episode)}
-                      className={`rounded-lg px-2 py-2 text-xs font-medium transition-colors
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg text-left
+                                transition-all duration-200 group border
                         ${
                           isSelected
-                            ? 'bg-green-500 text-white'
-                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300 ' +
-                              'dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+                            ? 'bg-green-500 text-white border-green-600 shadow-md'
+                            : 'bg-gray-100 hover:bg-gray-200 border-gray-200 ' +
+                              'dark:bg-gray-800 dark:hover:bg-gray-700 dark:border-gray-700 ' +
+                              'hover:border-green-500/50 hover:shadow-sm'
                         }`}
-                      title={episode.episodeTitle}
                     >
-                      {episode.episodeTitle}
+                      {/* 序号徽章 */}
+                      <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm
+                        ${
+                          isSelected
+                            ? 'bg-white/20 text-white'
+                            : 'bg-green-500 text-white group-hover:bg-green-600'
+                        }`}
+                      >
+                        {index + 1}
+                      </div>
+
+                      {/* 标题和信息 */}
+                      <div className='flex-1 min-w-0'>
+                        <div className='font-semibold text-sm mb-1 truncate'>
+                          {episode.episodeTitle}
+                        </div>
+                        <div className={`flex items-center gap-2 text-xs
+                          ${
+                            isSelected
+                              ? 'text-white/80'
+                              : 'text-gray-500 dark:text-gray-400'
+                          }`}
+                        >
+                          <span className='flex items-center gap-1'>
+                            🆔 ID: {episode.episodeId}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 选中标记 */}
+                      {isSelected && (
+                        <div className='flex-shrink-0'>
+                          <svg className='w-6 h-6 text-white' fill='currentColor' viewBox='0 0 20 20'>
+                            <path fillRule='evenodd' d='M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z' clipRule='evenodd' />
+                          </svg>
+                        </div>
+                      )}
+
+                      {/* 未选中时的箭头 */}
+                      {!isSelected && (
+                        <div className='flex-shrink-0'>
+                          <svg className='w-5 h-5 text-gray-400 group-hover:text-green-500 transition-colors' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                            <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M9 5l7 7-7 7' />
+                          </svg>
+                        </div>
+                      )}
                     </button>
                   );
                 })}

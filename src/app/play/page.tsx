@@ -2749,72 +2749,98 @@ function PlayPageClient() {
 
             {/* 列表区域 */}
             <div className='overflow-y-auto max-h-[60vh] p-4'>
-              <div className='space-y-3'>
-                {danmakuMatches.map((anime) => (
+              <div className='space-y-4'>
+                {danmakuMatches.map((anime, index) => (
                   <button
                     key={anime.animeId}
                     onClick={() => handleDanmakuSourceSelect(anime)}
-                    className='w-full flex items-start gap-4 p-4 bg-gray-50 dark:bg-gray-700/50
+                    className='w-full flex flex-col p-5 bg-gray-50 dark:bg-gray-700/50
                              hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all
                              duration-200 text-left group border-2 border-transparent
                              hover:border-green-500 hover:shadow-lg'
                   >
-                    {/* 封面 */}
-                    {anime.imageUrl && (
-                      <div className='flex-shrink-0 w-16 h-24 rounded-lg overflow-hidden shadow-md
-                                    group-hover:shadow-xl transition-shadow duration-200'>
-                        <img
-                          src={anime.imageUrl}
-                          alt={anime.animeTitle}
-                          className='w-full h-full object-cover'
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                          }}
-                        />
+                    {/* 顶部：序号和标题 */}
+                    <div className='flex items-start gap-3 mb-3'>
+                      {/* 序号 */}
+                      <div className='flex-shrink-0 w-8 h-8 rounded-full bg-green-500 text-white
+                                    flex items-center justify-center font-bold text-sm
+                                    group-hover:bg-green-600 transition-colors duration-200'>
+                        {index + 1}
                       </div>
-                    )}
 
-                    {/* 信息 */}
-                    <div className='flex-1 min-w-0'>
-                      <h4 className='text-base font-bold text-gray-900 dark:text-white
+                      {/* 标题 */}
+                      <h4 className='flex-1 text-lg font-bold text-gray-900 dark:text-white
                                    group-hover:text-green-600 dark:group-hover:text-green-400
-                                   transition-colors duration-200 line-clamp-2'>
+                                   transition-colors duration-200 leading-tight'>
                         {anime.animeTitle}
                       </h4>
 
-                      <div className='flex flex-wrap gap-2 mt-2'>
-                        {anime.typeDescription && (
-                          <span className='inline-flex items-center px-2 py-1 rounded-md
-                                         bg-blue-100 dark:bg-blue-900/30 text-blue-700
-                                         dark:text-blue-300 text-xs font-medium'>
-                            {anime.typeDescription}
-                          </span>
-                        )}
-                        {anime.episodeCount && (
-                          <span className='inline-flex items-center px-2 py-1 rounded-md
-                                         bg-purple-100 dark:bg-purple-900/30 text-purple-700
-                                         dark:text-purple-300 text-xs font-medium'>
-                            {anime.episodeCount} 集
-                          </span>
-                        )}
-                        {anime.startDate && (
-                          <span className='inline-flex items-center px-2 py-1 rounded-md
-                                         bg-gray-100 dark:bg-gray-600 text-gray-700
-                                         dark:text-gray-300 text-xs font-medium'>
-                            {anime.startDate}
-                          </span>
-                        )}
+                      {/* 选择图标 */}
+                      <div className='flex-shrink-0'>
+                        <svg className='w-6 h-6 text-gray-400 group-hover:text-green-500
+                                      transition-colors duration-200'
+                             fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                          <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2}
+                                d='M9 5l7 7-7 7' />
+                        </svg>
                       </div>
                     </div>
 
-                    {/* 选择图标 */}
-                    <div className='flex-shrink-0 self-center'>
-                      <svg className='w-6 h-6 text-gray-400 group-hover:text-green-500
-                                    transition-colors duration-200'
-                           fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                        <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2}
-                              d='M9 5l7 7-7 7' />
-                      </svg>
+                    {/* 主体内容 */}
+                    <div className='flex gap-4'>
+                      {/* 封面 */}
+                      {anime.imageUrl && (
+                        <div className='flex-shrink-0 w-20 h-28 rounded-lg overflow-hidden shadow-md
+                                      group-hover:shadow-xl transition-shadow duration-200'>
+                          <img
+                            src={anime.imageUrl}
+                            alt={anime.animeTitle}
+                            className='w-full h-full object-cover'
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* 详细信息 */}
+                      <div className='flex-1 space-y-2'>
+                        {/* 基本信息标签 */}
+                        <div className='flex flex-wrap gap-2'>
+                          {anime.typeDescription && (
+                            <span className='inline-flex items-center px-2.5 py-1 rounded-md
+                                           bg-blue-100 dark:bg-blue-900/30 text-blue-700
+                                           dark:text-blue-300 text-sm font-medium'>
+                              📺 {anime.typeDescription}
+                            </span>
+                          )}
+                          {anime.episodeCount && (
+                            <span className='inline-flex items-center px-2.5 py-1 rounded-md
+                                           bg-purple-100 dark:bg-purple-900/30 text-purple-700
+                                           dark:text-purple-300 text-sm font-medium'>
+                              🎬 {anime.episodeCount} 集
+                            </span>
+                          )}
+                          {anime.startDate && (
+                            <span className='inline-flex items-center px-2.5 py-1 rounded-md
+                                           bg-gray-100 dark:bg-gray-600 text-gray-700
+                                           dark:text-gray-300 text-sm font-medium'>
+                              📅 {anime.startDate}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 动漫ID */}
+                        <div className='text-xs text-gray-500 dark:text-gray-400'>
+                          弹幕库 ID: {anime.animeId}
+                        </div>
+
+                        {/* 提示信息 */}
+                        <div className='text-sm text-gray-600 dark:text-gray-300 pt-1
+                                      opacity-0 group-hover:opacity-100 transition-opacity duration-200'>
+                          点击选择此弹幕源
+                        </div>
+                      </div>
                     </div>
                   </button>
                 ))}
