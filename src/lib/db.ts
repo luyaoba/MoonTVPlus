@@ -267,6 +267,13 @@ export class DbManager {
     }
   }
 
+  // ---------- 收藏迁移 ----------
+  async migrateFavorites(userName: string): Promise<void> {
+    if (typeof (this.storage as any).migrateFavorites === 'function') {
+      await (this.storage as any).migrateFavorites(userName);
+    }
+  }
+
   // ---------- 数据迁移 ----------
   async migrateUsersFromConfig(adminConfig: AdminConfig): Promise<void> {
     if (typeof (this.storage as any).createUserV2 !== 'function') {

@@ -41,12 +41,16 @@ export interface IStorage {
   deletePlayRecord(userName: string, key: string): Promise<void>;
   // 清理超出限制的旧播放记录
   cleanupOldPlayRecords(userName: string): Promise<void>;
+  // 迁移播放记录
+  migratePlayRecords(userName: string): Promise<void>;
 
   // 收藏相关
   getFavorite(userName: string, key: string): Promise<Favorite | null>;
   setFavorite(userName: string, key: string, favorite: Favorite): Promise<void>;
   getAllFavorites(userName: string): Promise<{ [key: string]: Favorite }>;
   deleteFavorite(userName: string, key: string): Promise<void>;
+  // 迁移收藏
+  migrateFavorites(userName: string): Promise<void>;
 
   // 用户相关
   registerUser(userName: string, password: string): Promise<void>;

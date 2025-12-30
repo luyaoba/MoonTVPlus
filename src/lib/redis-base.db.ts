@@ -267,7 +267,7 @@ export abstract class BaseRedisStorage implements IStorage {
   // 迁移播放记录：从旧的多key结构迁移到新的hash结构
   async migratePlayRecords(userName: string): Promise<void> {
     // 检查是否已有正在进行的迁移
-    const existingMigration = migrationLocks.get(userName);
+    const existingMigration = playRecordLocks.get(userName);
     if (existingMigration) {
       console.log(`用户 ${userName} 的播放记录正在迁移中，等待完成...`);
       await existingMigration;
@@ -276,13 +276,13 @@ export abstract class BaseRedisStorage implements IStorage {
 
     // 创建新的迁移Promise
     const migrationPromise = this.doMigration(userName);
-    migrationLocks.set(userName, migrationPromise);
+    playRecordLocks.set(userName, migrationPromise);
 
     try {
       await migrationPromise;
     } finally {
       // 迁移完成后清除锁
-      migrationLocks.delete(userName);
+      playRecordLocks.delete(userName);
     }
   }
 
@@ -354,13 +354,18 @@ export abstract class BaseRedisStorage implements IStorage {
   }
 
   // ---------- 收藏 ----------
-  private favKey(user: string, key: string) {
+  private favHashKey(user: string) {
+    return `u:${user}:fav`; // u:username:fav (hash结构)
+  }
+
+  // 旧版收藏key（用于迁移）
+  private favOldKey(user: string, key: string) {
     return `u:${user}:fav:${key}`;
   }
 
   async getFavorite(userName: string, key: string): Promise<Favorite | null> {
     const val = await this.withRetry(() =>
-      this.client.get(this.favKey(userName, key))
+      this.client.hGet(this.favHashKey(userName), key)
     );
     return val ? (JSON.parse(val) as Favorite) : null;
   }
@@ -371,29 +376,115 @@ export abstract class BaseRedisStorage implements IStorage {
     favorite: Favorite
   ): Promise<void> {
     await this.withRetry(() =>
-      this.client.set(this.favKey(userName, key), JSON.stringify(favorite))
+      this.client.hSet(this.favHashKey(userName), key, JSON.stringify(favorite))
     );
   }
 
   async getAllFavorites(userName: string): Promise<Record<string, Favorite>> {
-    const pattern = `u:${userName}:fav:*`;
-    const keys: string[] = await this.withRetry(() => this.client.keys(pattern));
-    if (keys.length === 0) return {};
-    const values = await this.withRetry(() => this.client.mGet(keys));
+    const hashData = await this.withRetry(() =>
+      this.client.hGetAll(this.favHashKey(userName))
+    );
+
     const result: Record<string, Favorite> = {};
-    keys.forEach((fullKey: string, idx: number) => {
-      const raw = values[idx];
-      if (raw) {
-        const fav = JSON.parse(raw) as Favorite;
-        const keyPart = ensureString(fullKey.replace(`u:${userName}:fav:`, ''));
-        result[keyPart] = fav;
+    for (const [key, value] of Object.entries(hashData)) {
+      if (value) {
+        result[key] = JSON.parse(value) as Favorite;
       }
-    });
+    }
     return result;
   }
 
   async deleteFavorite(userName: string, key: string): Promise<void> {
-    await this.withRetry(() => this.client.del(this.favKey(userName, key)));
+    await this.withRetry(() => this.client.hDel(this.favHashKey(userName), key));
+  }
+
+  // 迁移收藏：从旧的多key结构迁移到新的hash结构
+  async migrateFavorites(userName: string): Promise<void> {
+    // 检查是否已有正在进行的迁移
+    const existingMigration = playRecordLocks.get(userName);
+    if (existingMigration) {
+      console.log(`用户 ${userName} 的收藏正在迁移中，等待完成...`);
+      await existingMigration;
+      return;
+    }
+
+    // 创建新的迁移Promise
+    const migrationPromise = this.doFavoriteMigration(userName);
+    playRecordLocks.set(userName, migrationPromise);
+
+    try {
+      await migrationPromise;
+    } finally {
+      // 迁移完成后清除锁
+      playRecordLocks.delete(userName);
+    }
+  }
+
+  // 实际执行收藏迁移的方法
+  private async doFavoriteMigration(userName: string): Promise<void> {
+    console.log(`开始迁移用户 ${userName} 的收藏...`);
+
+    // 1. 检查是否已经迁移过
+    const userInfo = await this.getUserInfoV2(userName);
+    if (userInfo?.favorite_migrated) {
+      console.log(`用户 ${userName} 的收藏已经迁移过，跳过`);
+      return;
+    }
+
+    // 2. 获取旧结构的所有收藏key
+    const pattern = `u:${userName}:fav:*`;
+    const oldKeys: string[] = await this.withRetry(() => this.client.keys(pattern));
+
+    if (oldKeys.length === 0) {
+      console.log(`用户 ${userName} 没有旧的收藏，标记为已迁移`);
+      // 即使没有数据也标记为已迁移
+      await this.withRetry(() =>
+        this.client.hSet(this.userInfoKey(userName), 'favorite_migrated', 'true')
+      );
+      // 清除用户信息缓存
+      const { userInfoCache } = await import('./user-cache');
+      userInfoCache?.delete(userName);
+      return;
+    }
+
+    console.log(`找到 ${oldKeys.length} 条旧收藏，开始迁移...`);
+
+    // 3. 批量获取旧数据
+    const oldValues = await this.withRetry(() => this.client.mGet(oldKeys));
+
+    // 4. 转换为hash格式
+    const hashData: Record<string, string> = {};
+    oldKeys.forEach((fullKey: string, idx: number) => {
+      const raw = oldValues[idx];
+      if (raw) {
+        // 提取 source+id 部分作为hash的field
+        const keyPart = ensureString(fullKey.replace(`u:${userName}:fav:`, ''));
+        hashData[keyPart] = raw;
+      }
+    });
+
+    // 5. 写入新的hash结构
+    if (Object.keys(hashData).length > 0) {
+      await this.withRetry(() =>
+        this.client.hSet(this.favHashKey(userName), hashData)
+      );
+      console.log(`成功迁移 ${Object.keys(hashData).length} 条收藏到hash结构`);
+    }
+
+    // 6. 删除旧的key
+    await this.withRetry(() => this.client.del(oldKeys));
+    console.log(`删除了 ${oldKeys.length} 个旧的收藏key`);
+
+    // 7. 标记迁移完成
+    await this.withRetry(() =>
+      this.client.hSet(this.userInfoKey(userName), 'favorite_migrated', 'true')
+    );
+
+    // 8. 清除用户信息缓存，确保下次获取时能读取到最新的迁移标识
+    const { userInfoCache } = await import('./user-cache');
+    userInfoCache?.delete(userName);
+
+    console.log(`用户 ${userName} 的收藏迁移完成`);
   }
 
   // ---------- 用户注册 / 登录（旧版本，保持兼容） ----------
@@ -452,7 +543,10 @@ export abstract class BaseRedisStorage implements IStorage {
       await this.withRetry(() => this.client.del(playRecordKeys));
     }
 
-    // 删除收藏夹
+    // 删除收藏夹（新hash结构）
+    await this.withRetry(() => this.client.del(this.favHashKey(userName)));
+
+    // 删除旧的收藏key（如果有）
     const favoritePattern = `u:${userName}:fav:*`;
     const favoriteKeys = await this.withRetry(() =>
       this.client.keys(favoritePattern)
@@ -565,6 +659,7 @@ export abstract class BaseRedisStorage implements IStorage {
     enabledApis?: string[];
     created_at: number;
     playrecord_migrated?: boolean;
+    favorite_migrated?: boolean;
   } | null> {
     const userInfo = await this.withRetry(() =>
       this.client.hGetAll(this.userInfoKey(userName))
@@ -582,6 +677,7 @@ export abstract class BaseRedisStorage implements IStorage {
       enabledApis: userInfo.enabledApis ? JSON.parse(userInfo.enabledApis) : undefined,
       created_at: parseInt(userInfo.created_at || '0', 10),
       playrecord_migrated: userInfo.playrecord_migrated === 'true',
+      favorite_migrated: userInfo.favorite_migrated === 'true',
     };
   }
 
