@@ -1,6 +1,6 @@
 name: Deploy to Cloudflare
 
-于:
+on:
   workflow_dispatch:
 
 concurrency:
@@ -22,17 +22,15 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Set environment variables
         run: |
@@ -128,7 +126,7 @@ jobs:
         run: pnpm run build:cloudflare
 
       - name: Install Wrangler
-        run: pnpm add -g wrangler@3.107.2
+        run: pnpm add -g wrangler@4.60.0
 
       - name: Run D1 Database Migrations
         run: |
@@ -158,4 +156,4 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
           packageManager: pnpm
-          wranglerVersion: "3.107.2"
+          wranglerVersion: "4.60.0"
