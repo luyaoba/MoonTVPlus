@@ -1,17 +1,17 @@
 name: Build & Push Docker image
 
-于:
+on:
   workflow_dispatch:
     inputs:
       tag:
         description: 'Docker 标签'
         required: false
-        默认: 'latest'
-        输入: string
+        default: 'latest'
+        type: string
   push:
-    分支: [ main, master ]
+    branches: [ main, master ]
   pull_request:
-    分支: [ main, master ]
+    branches: [ main, master ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -72,7 +72,7 @@ jobs:
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          标签: ghcr.io/luyaoba/moontvplus:${{ github.event.inputs.tag || 'latest' }}
+          tags: ghcr.io/luyaoba/moontvplus:${{ github.event.inputs.tag || 'latest' }}
           outputs: type=image,name=ghcr.io/luyaoba/moontvplus,name-canonical=true,push=true
 
       - name: Export digest
