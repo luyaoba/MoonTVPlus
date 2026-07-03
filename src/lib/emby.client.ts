@@ -12,6 +12,8 @@ interface EmbyConfig {
   appendMediaSourceId?: boolean;
   transcodeMp4?: boolean;
   proxyPlay?: boolean; // 视频播放代理开关
+  customUserAgent?: string; // 自定义User-Agent
+  embyAuthorizationHeader?: string; // 自定义 X-Emby-Authorization 请求头
   key?: string; // Emby源的唯一标识
 }
 
@@ -40,6 +42,19 @@ interface EmbyItem {
   }>;
 }
 
+export interface EmbySubtitle {
+  url: string;
+  fallbackUrl?: string;
+  fallbackFormat?: string;
+  language: string;
+  label: string;
+  format: string;
+  sourceFormat: string;
+  codec?: string;
+  isExternal?: boolean;
+  renderMode: 'native' | 'jassub';
+}
+
 interface EmbyItemsResult {
   Items: EmbyItem[];
   TotalRecordCount: number;
@@ -63,6 +78,8 @@ interface EmbyView {
   CollectionType?: string;
 }
 
+const DEFAULT_EMBY_AUTHORIZATION_HEADER = 'MediaBrowser Client="moontvplus", Device="Web", DeviceId="moontvplus-web", Version="1.0.0"';
+
 export class EmbyClient {
   private serverUrl: string;
   private apiKey?: string;
@@ -75,6 +92,8 @@ export class EmbyClient {
   private transcodeMp4: boolean;
   private proxyPlay: boolean;
   private embyKey?: string;
+  private customUserAgent: string;
+  private embyAuthorizationHeader: string;
 
   constructor(config: EmbyConfig) {
     let serverUrl = config.ServerURL.replace(/\/$/, '');
@@ -85,6 +104,9 @@ export class EmbyClient {
     this.transcodeMp4 = config.transcodeMp4 || false;
     this.proxyPlay = config.proxyPlay || false;
     this.embyKey = config.key;
+    // 设置自定义UA，如果没有设置则使用默认浏览器UA
+    this.customUserAgent = config.customUserAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    this.embyAuthorizationHeader = config.embyAuthorizationHeader?.trim() || DEFAULT_EMBY_AUTHORIZATION_HEADER;
 
     // 如果 URL 不包含 /emby 路径，自动添加（除非启用了 removeEmbyPrefix）
     if (!serverUrl.endsWith('/emby') && !this.removeEmbyPrefix) {
@@ -111,18 +133,23 @@ export class EmbyClient {
     // 如果有 AuthToken，假设它是有效的
     if (this.authToken) return;
 
-    // 如果有用户名和密码，自动认证
-    if (this.username && this.password) {
-      const authResult = await this.authenticate(this.username, this.password);
+    // 如果有用户名，自动认证（密码可选）
+    if (this.username) {
+      const authResult = await this.authenticate(this.username, this.password || '');
       this.authToken = authResult.AccessToken;
       this.userId = authResult.User.Id;
     }
   }
 
-  private getHeaders(): Record<string, string> {
+  private getHeaders(includeContentType: boolean = false): Record<string, string> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      'User-Agent': this.customUserAgent,
     };
+
+    // 只在需要时添加 Content-Type（POST/PUT 请求）
+    if (includeContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     if (this.apiKey) {
       headers['X-Emby-Token'] = this.apiKey;
@@ -136,7 +163,7 @@ export class EmbyClient {
   async authenticate(username: string, password: string): Promise<{ AccessToken: string; User: { Id: string } }> {
     const url = `${this.serverUrl}/Users/AuthenticateByName`;
 
-    const params = new URLSearchParams({
+    const body = JSON.stringify({
       Username: username,
       Pw: password,
     });
@@ -144,10 +171,11 @@ export class EmbyClient {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Emby-Authorization': 'MediaBrowser Client="LunaTV", Device="Web", DeviceId="lunatv-web", Version="1.0.0"',
+        'Content-Type': 'application/json',
+        'X-Emby-Authorization': this.embyAuthorizationHeader,
+        'User-Agent': this.customUserAgent,
       },
-      body: params.toString(),
+      body: body,
     });
 
     if (!response.ok) {
@@ -189,8 +217,8 @@ export class EmbyClient {
     const response = await fetch(url);
 
     // 如果是 401 错误且有用户名密码，尝试重新认证
-    if (response.status === 401 && this.username && this.password && !this.apiKey) {
-      const authResult = await this.authenticate(this.username, this.password);
+    if (response.status === 401 && this.username && !this.apiKey) {
+      const authResult = await this.authenticate(this.username, this.password || '');
       this.authToken = authResult.AccessToken;
       this.userId = authResult.User.Id;
 
@@ -238,7 +266,7 @@ export class EmbyClient {
     // 添加认证参数
     const token = this.apiKey || this.authToken;
     if (token) {
-      searchParams.set('X-Emby-Token', token);
+      searchParams.set('api_key', token);
     }
 
     const url = `${this.serverUrl}/Users/${this.userId}/Items?${searchParams.toString()}`;
@@ -246,13 +274,13 @@ export class EmbyClient {
     const response = await fetch(url);
 
     // 如果是 401 错误且有用户名密码，尝试重新认证
-    if (response.status === 401 && this.username && this.password && !this.apiKey) {
-      const authResult = await this.authenticate(this.username, this.password);
+    if (response.status === 401 && this.username && !this.apiKey) {
+      const authResult = await this.authenticate(this.username, this.password || '');
       this.authToken = authResult.AccessToken;
       this.userId = authResult.User.Id;
 
       // 重试请求
-      searchParams.set('X-Emby-Token', this.authToken);
+      searchParams.set('api_key', this.authToken);
       const retryUrl = `${this.serverUrl}/Users/${this.userId}/Items?${searchParams.toString()}`;
       const retryResponse = await fetch(retryUrl);
 
@@ -284,8 +312,8 @@ export class EmbyClient {
     const response = await fetch(url);
 
     // 如果是 401 错误且有用户名密码，尝试重新认证
-    if (response.status === 401 && this.username && this.password && !this.apiKey) {
-      const authResult = await this.authenticate(this.username, this.password);
+    if (response.status === 401 && this.username && !this.apiKey) {
+      const authResult = await this.authenticate(this.username, this.password || '');
       this.authToken = authResult.AccessToken;
       this.userId = authResult.User.Id;
 
@@ -320,8 +348,8 @@ export class EmbyClient {
     const response = await fetch(url);
 
     // 如果是 401 错误且有用户名密码，尝试重新认证
-    if (response.status === 401 && this.username && this.password && !this.apiKey) {
-      const authResult = await this.authenticate(this.username, this.password);
+    if (response.status === 401 && this.username && !this.apiKey) {
+      const authResult = await this.authenticate(this.username, this.password || '');
       this.authToken = authResult.AccessToken;
       this.userId = authResult.User.Id;
 
@@ -371,8 +399,8 @@ export class EmbyClient {
     const response = await fetch(url);
 
     // 如果是 401 错误且有用户名密码，尝试重新认证
-    if (response.status === 401 && this.username && this.password && !this.apiKey) {
-      const authResult = await this.authenticate(this.username, this.password);
+    if (response.status === 401 && this.username && !this.apiKey) {
+      const authResult = await this.authenticate(this.username, this.password || '');
       this.authToken = authResult.AccessToken;
       this.userId = authResult.User.Id;
 
@@ -420,7 +448,20 @@ export class EmbyClient {
     }
   }
 
-  getImageUrl(itemId: string, imageType: 'Primary' | 'Backdrop' | 'Logo' = 'Primary', maxWidth?: number): string {
+  getImageUrl(itemId: string, imageType: 'Primary' | 'Backdrop' | 'Logo' = 'Primary', maxWidth?: number, proxyToken?: string, forceDirectUrl = false): string {
+    // 如果启用了代理播放且不是强制获取直接URL，返回代理 URL
+    if (this.proxyPlay && !forceDirectUrl) {
+      // 使用固定的token占位符，实际验证在服务端进行
+      const subscribeToken = proxyToken || 'proxy';
+      const params = new URLSearchParams();
+      params.set('imageType', imageType);
+      if (maxWidth) params.set('maxWidth', maxWidth.toString());
+      if (this.embyKey) params.set('embyKey', this.embyKey);
+
+      return `/api/emby/image/${subscribeToken}/${itemId}?${params.toString()}`;
+    }
+
+    // 否则返回直连 URL
     const params = new URLSearchParams();
     const token = this.apiKey || this.authToken;
 
@@ -464,6 +505,7 @@ export class EmbyClient {
   }
 
   async getStreamUrl(itemId: string, direct = true, forceDirectUrl = false): Promise<string> {
+    await this.ensureAuthenticated();
     const token = this.apiKey || this.authToken;
 
     // 如果启用了代理播放且不是强制获取直接URL，返回代理URL
@@ -512,8 +554,89 @@ export class EmbyClient {
     return url;
   }
 
-  getSubtitles(item: EmbyItem): Array<{ url: string; language: string; label: string }> {
-    const subtitles: Array<{ url: string; language: string; label: string }> = [];
+  private normalizeSubtitleFormat(codec?: string, deliveryUrl?: string): string {
+    const normalizedCodec = codec?.trim().toLowerCase();
+
+    if (normalizedCodec) {
+      const codecMap: Record<string, string> = {
+        subrip: 'srt',
+        webvtt: 'vtt',
+        'text/vtt': 'vtt',
+        'hdmv_pgs_subtitle': 'pgs',
+        pgssub: 'pgs',
+        dvdsub: 'sub',
+        dvbsub: 'sub',
+      };
+
+      return codecMap[normalizedCodec] || normalizedCodec;
+    }
+
+    const extension = deliveryUrl
+      ?.split('?')[0]
+      ?.match(/\.([a-z0-9]+)$/i)?.[1]
+      ?.toLowerCase();
+
+    return extension || 'unknown';
+  }
+
+  private getSubtitleTargetFormat(sourceFormat: string): string {
+    return sourceFormat === 'ass' || sourceFormat === 'ssa' ? sourceFormat : 'vtt';
+  }
+
+  private buildSubtitleStreamUrl(
+    itemId: string,
+    mediaSourceId: string,
+    streamIndex: number,
+    format: string,
+    proxyToken?: string | null,
+    forceDirectUrl = false
+  ): string {
+    const safeFormat = /^[a-z0-9]+$/i.test(format) ? format.toLowerCase() : 'vtt';
+
+    if (!forceDirectUrl) {
+      const subscribeToken = proxyToken || 'proxy';
+      const params = new URLSearchParams({
+        itemId,
+        mediaSourceId,
+        streamIndex: streamIndex.toString(),
+        format: safeFormat,
+      });
+
+      if (this.embyKey) {
+        params.set('embyKey', this.embyKey);
+      }
+
+      return `/api/emby/subtitle/${encodeURIComponent(subscribeToken)}/subtitle.${safeFormat}?${params.toString()}`;
+    }
+
+    const params = new URLSearchParams();
+    const token = this.apiKey || this.authToken;
+    if (token) params.set('api_key', token);
+
+    const queryString = params.toString();
+    return `${this.serverUrl}/Videos/${itemId}/${mediaSourceId}/Subtitles/${streamIndex}/Stream.${safeFormat}${queryString ? '?' + queryString : ''}`;
+  }
+
+  async getSubtitleStreamUrl(
+    itemId: string,
+    mediaSourceId: string,
+    streamIndex: number,
+    format: string,
+    forceDirectUrl = false
+  ): Promise<string> {
+    await this.ensureAuthenticated();
+    return this.buildSubtitleStreamUrl(
+      itemId,
+      mediaSourceId,
+      streamIndex,
+      format,
+      undefined,
+      forceDirectUrl
+    );
+  }
+
+  getSubtitles(item: EmbyItem, proxyToken?: string | null): EmbySubtitle[] {
+    const subtitles: EmbySubtitle[] = [];
 
     if (!item.MediaSources || item.MediaSources.length === 0) {
       return subtitles;
@@ -524,31 +647,53 @@ export class EmbyClient {
       return subtitles;
     }
 
-    const token = this.apiKey || this.authToken;
-
     mediaSource.MediaStreams
       .filter((stream) => stream.Type === 'Subtitle')
       .forEach((stream) => {
         const language = stream.Language || 'unknown';
-        const label = stream.DisplayTitle || `${language} (${stream.Codec})`;
+        const sourceFormat = this.normalizeSubtitleFormat(stream.Codec, stream.DeliveryUrl);
+        const targetFormat = this.getSubtitleTargetFormat(sourceFormat);
+        const renderMode = targetFormat === 'ass' || targetFormat === 'ssa' ? 'jassub' : 'native';
+        const label = stream.DisplayTitle || `${language} (${stream.Codec || targetFormat})`;
 
-        // 外部字幕使用 DeliveryUrl
-        if (stream.IsExternal && stream.DeliveryUrl) {
-          subtitles.push({
-            url: `${this.serverUrl}${stream.DeliveryUrl}`,
-            language,
-            label,
-          });
-        } else {
-          // 内嵌字幕使用 Stream API
-          subtitles.push({
-            url: `${this.serverUrl}/Videos/${item.Id}/${mediaSource.Id}/Subtitles/${stream.Index}/Stream.vtt?api_key=${token}`,
-            language,
-            label,
-          });
-        }
+        subtitles.push({
+          url: this.buildSubtitleStreamUrl(
+            item.Id,
+            mediaSource.Id,
+            stream.Index,
+            targetFormat,
+            proxyToken
+          ),
+          ...(renderMode === 'jassub'
+            ? {
+              fallbackUrl: this.buildSubtitleStreamUrl(
+                item.Id,
+                mediaSource.Id,
+                stream.Index,
+                'vtt',
+                proxyToken
+              ),
+              fallbackFormat: 'vtt',
+            }
+            : {}),
+          language,
+          label,
+          format: targetFormat,
+          sourceFormat,
+          codec: stream.Codec,
+          isExternal: stream.IsExternal,
+          renderMode,
+        });
       });
 
     return subtitles;
+  }
+
+  getUserAgent(): string {
+    return this.customUserAgent;
+  }
+
+  isProxyEnabled(): boolean {
+    return this.proxyPlay;
   }
 }

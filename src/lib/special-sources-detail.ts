@@ -8,7 +8,8 @@ import { SearchResult } from '@/lib/types';
  */
 export async function getEmbyDetail(
   source: string,
-  id: string
+  id: string,
+  proxyToken?: string | null
 ): Promise<SearchResult> {
   const config = await getConfig();
 
@@ -37,14 +38,14 @@ export async function getEmbyDetail(
   // 根据类型处理
   if (item.Type === 'Movie') {
     // 电影
-    const subtitles = client.getSubtitles(item);
+    const subtitles = client.getSubtitles(item, proxyToken);
 
     return {
       source: source, // 保持与请求一致（emby 或 emby_key）
       source_name: sourceName,
       id: item.Id,
       title: item.Name,
-      poster: client.getImageUrl(item.Id, 'Primary'),
+      poster: client.getImageUrl(item.Id, 'Primary', undefined, client.isProxyEnabled() ? proxyToken || undefined : undefined),
       year: item.ProductionYear?.toString() || '',
       douban_id: 0,
       desc: item.Overview || '',
@@ -76,7 +77,7 @@ export async function getEmbyDetail(
       source_name: sourceName,
       id: item.Id,
       title: item.Name,
-      poster: client.getImageUrl(item.Id, 'Primary'),
+      poster: client.getImageUrl(item.Id, 'Primary', undefined, client.isProxyEnabled() ? proxyToken || undefined : undefined),
       year: item.ProductionYear?.toString() || '',
       douban_id: 0,
       desc: item.Overview || '',
@@ -88,7 +89,7 @@ export async function getEmbyDetail(
         const episodeNum = ep.IndexNumber || 1;
         return `S${seasonNum.toString().padStart(2, '0')}E${episodeNum.toString().padStart(2, '0')}`;
       }),
-      subtitles: allEpisodes.map((ep) => client.getSubtitles(ep)),
+      subtitles: allEpisodes.map((ep) => client.getSubtitles(ep, proxyToken)),
       proxyMode: false,
     };
   } else {
